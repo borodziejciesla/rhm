@@ -5,10 +5,10 @@
 
 namespace eot {
   /* x, y, vx, vy */
-  class ModelCv : public RhmTracker<4u, 2u> {
+  class ModelCv : public RhmTracker<4u, 5u> {
     public:
-      explicit ModelCv(const RhmCalibrations<4u> & calibrations) 
-        : RhmTracker<4u, 2u>(calibrations) {
+      explicit ModelCv(const RhmCalibrations<4u, 5u> & calibrations) 
+        : RhmTracker<4u, 5u>(calibrations) {
         // TODO
       }
 
@@ -18,8 +18,8 @@ namespace eot {
         SetTransitionMatrix(time_delta);
 
         // Update kinematic
-        state_.kinematic_state.state = transition_matrix_ * state_.kinematic_state.state;
-        state_.kinematic_state.covariance = transition_matrix_ * state_.kinematic_state.covariance * transition_matrix_.transpose() + time_delta * c_kinematic_;
+        state_.kinematic.state = transition_matrix_ * state_.kinematic.state;
+        state_.kinematic.covariance = transition_matrix_ * state_.kinematic.covariance * transition_matrix_.transpose() + time_delta * c_kinematic_;
       }
     
     private:
@@ -33,7 +33,7 @@ namespace eot {
         // vx
         transition_matrix_(2u, 1u) = 1.0;
         // vy
-        transition_matrix_(3u, 3u) = 1.0;`
+        transition_matrix_(3u, 3u) = 1.0;
       }
 
       StateMatrix transition_matrix_ = StateMatrix::Zero();

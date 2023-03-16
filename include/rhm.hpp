@@ -5,13 +5,14 @@
 #include <array>
 #include <cmath>
 #include <numbers>
+#include <numeric>
 #include <vector>
 
 #include <Eigen/Dense>
 
 #include "measurement.hpp"
-#include "rhm_calibrations.hpp"
 #include "object_state.hpp"
+#include "rhm_calibrations.hpp"
 #include "../components/helpers/helper_functions.hpp"
 
 namespace eot {

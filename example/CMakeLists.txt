@@ -24,5 +24,4 @@ include_directories(${EXAMPLE_PROJECT_NAME}
 target_link_libraries(${EXAMPLE_PROJECT_NAME}
   rhm
   ${Python3_LIBRARIES}
-  Eigen3::Eigen
 )

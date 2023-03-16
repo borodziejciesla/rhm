@@ -20,11 +20,14 @@ option(BUILD_EXAMPLE "Build example" OFF)
 ###############################################
 ################## Library ####################
 ###############################################
-find_package(Eigen3 REQUIRED QUIET)
+find_package(Eigen3)
+
+add_subdirectory(components)
 
 target_include_directories(${PROJECT_NAME}
   INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<TARGET_PROPERTY:eigen,INTERFACE_INCLUDE_DIRECTORIES>
 )
 
 # locations are provided by GNUInstallDirs
