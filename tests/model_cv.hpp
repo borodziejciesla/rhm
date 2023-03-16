@@ -1,14 +1,14 @@
-#ifndef MEM_EKF_TESTS_MODEL_CV_HPP_
-#define MEM_EKF_TESTS_MODEL_CV_HPP_
+#ifndef RHM_TESTS_MODEL_CV_HPP_
+#define RHM_TESTS_MODEL_CV_HPP_
 
-#include "mem_ekf.hpp"
+#include "rhm.hpp"
 
 namespace eot {
   /* x, y, vx, vy */
-  class ModelCv : public MemEkf<4u, 2u> {
+  class ModelCv : public RhmTracker<4u, 2u> {
     public:
-      explicit ModelCv(const MemEkfCalibrations<4u> & calibrations) 
-        : MemEkf<4u, 2u>(calibrations) {
+      explicit ModelCv(const RhmCalibrations<4u> & calibrations) 
+        : RhmTracker<4u, 2u>(calibrations) {
         // TODO
       }
 
@@ -33,10 +33,11 @@ namespace eot {
         // vx
         transition_matrix_(2u, 1u) = 1.0;
         // vy
-        transition_matrix_(3u, 3u) = 1.0;
+        transition_matrix_(3u, 3u) = 1.0;`
       }
+
       StateMatrix transition_matrix_ = StateMatrix::Zero();
   };
 } //  namespace eot
 
-#endif  //  MEM_EKF_TESTS_MODEL_CV_HPP_
+#endif  //  RHM_TESTS_MODEL_CV_HPP_

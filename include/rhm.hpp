@@ -17,23 +17,37 @@
 namespace eot {
   template <size_t kinematic_state_size, size_t extent_state_size, size_t measurement_size = 2u>
   class RhmTracker {
+    private:
+      static constexpr uint8_t n_ = extent_state_size + 3u;
+      static constexpr uint8_t n_state_ = extent_state_size;
+      static constexpr uint8_t sigma_points_number_ = 2u * n_ + 1u;
+      static constexpr double alpha_ = 1.0;
+      static constexpr double beta_ = 0.0;
+      static constexpr double kappa_ = 0.0;
+      static constexpr double lambda_ = std::pow(alpha_, 2u) * (static_cast<double>(n_) + kappa_) - static_cast<double>(n_);
+
     public:
       using StateVector = Eigen::Vector<double, kinematic_state_size>;
       using StateMatrix = Eigen::Matrix<double, kinematic_state_size, kinematic_state_size>;
       using Measurement = MeasurementWithCovariance<measurement_size>;
       using MeasurementVector = Eigen::Vector<double, measurement_size>;
       using MeasurementMatrix = Eigen::Matrix<double, measurement_size, measurement_size>;
+      using ObjectStateRhm = ObjectState<kinematic_state_size, extent_state_size + 3u>;
 
     public:
-      explicit RhmTracker(const RhmCalibrations<kinematic_state_size> & calibrations)
-        : calibrations_{calibrations}
-        , c_kinematic_{ConvertDiagonalToMatrix(calibrations_.process_noise_kinematic_diagonal)}
-        , c_extent_{ConvertDiagonalToMatrix(calibrations_.process_noise_extent_diagonal)} {
-        state_ = calibrations_.initial_state;
-        c_kinematic_ = ConvertDiagonalToMatrix(calibrations_.process_noise_kinematic_diagonal);
+      explicit RhmTracker(const RhmCalibrations<kinematic_state_size, extent_state_size> & calibrations)
+        : calibrations_{calibrations} {
+        //state_ = calibrations_.initial_state;
 
         scale_.state(0u) = 0.7;
         scale_.covariance(0u, 0u) = 0.08;
+
+        // Observation matrix
+        h_(0u, 0u) = 1.0;
+        h_(1u, 1u) = 1.0;
+
+
+        SetUkfWeights();
       }
       
       virtual ~RhmTracker(void) = default;
@@ -54,16 +68,18 @@ namespace eot {
         is_initialized_ = true;
       }
 
-      const ObjectState<kinematic_state_size> & GetEstimatedState(void) const {
+      const ObjectStateRhm & GetEstimatedState(void) const {
         return state_;
       }
 
     protected:
       virtual void UpdateKinematic(const double time_delta) = 0;
-      virtual void UpdateExtent(void) = 0;
-      virtual void FirstEstimation(const std::vector<Measurement> & measurements) = 0;
+      void UpdateExtent(void) {};
+      void FirstEstimation(const std::vector<Measurement> & measurements) {};
       
-      ObjectState<kinematic_state_size, extent_state_size> state_;
+      ObjectStateRhm state_;
+      Eigen::Matrix<double, kinematic_state_size, kinematic_state_size> c_kinematic_;
+
       StateWithCovariance<1u> scale_;
       double covariance_pseudo_measurement_ = 0.0;
       Eigen::Vector<double, extent_state_size + 3u> crosscovariance_extent_pseudomeasurement_ = Eigen::Vector<double, extent_state_size + 3u>::Zero();
@@ -94,7 +110,7 @@ namespace eot {
         const auto inversed_measurement_covariance = covariance_measurement_.inverse();
 
         // Make correction
-        state_.kinematic_.state += crosscovariance_kinematic_measurement_ * inversed_measurement_covariance * (measurement.value - h_ * state_.kinematic.state);
+        state_.kinematic.state += crosscovariance_kinematic_measurement_ * inversed_measurement_covariance * (measurement.value - h_ * state_.kinematic.state);
         state_.kinematic.covariance -= crosscovariance_kinematic_measurement_ * inversed_measurement_covariance * crosscovariance_kinematic_measurement_.transpose();
 
         // Force symetricity
@@ -102,91 +118,35 @@ namespace eot {
       }
 
       void MakeExtentCorrection(const Measurement & measurement) {
-        /* Implements UKF Step */
-        // Noise
-        Eigen::Vector3d measurement_noise_mean = Eigen::Vector3d::Zero();
+        /* Noise */
+        static Eigen::Vector3d measurement_noise_mean = Eigen::Vector3d::Zero();
         measurement_noise_mean(0u) = scale_.state(0u);
 
-        Eigen::Matrix3d measurement_noise_cov = Eigen::Matrix3d::Zero();
+        static Eigen::Matrix3d measurement_noise_cov = Eigen::Matrix3d::Zero();
         measurement_noise_cov(0u, 0u) = scale_.covariance(0u, 0u);
         measurement_noise_cov.block<2u, 2u>(1u, 1u) = measurement.covariance;
 
-        // Prepare current extended state
-        Eigen::Vector<double, extent_state_size + 3u> p_ukf;
-        p_ukf.head(extent_state_size) = state_.extent.state;
-        p_ukf.tail<3>() = measurement_noise_mean;
+        /* Prepare current extended state */
+        p_ukf_.head(extent_state_size) = state_.extent.state;
+        p_ukf_.tail(3u) = measurement_noise_mean;
 
-        Eigen::Matrix<double, extent_state_size + 3u, extent_state_size + 3u> c_ukf;
-        c_ukf.block<extent_state_size, extent_state_size>(0u, 0u) = state_.extent.covariance;
-        c_ukf.block<3u, 3u>(extent_state_size, extent_state_size) = measurement_noise_cov;
+        c_ukf_.block(0u, 0u, extent_state_size, extent_state_size) = state_.extent.covariance;
+        c_ukf_.block(extent_state_size, extent_state_size, 3u, 3u) = measurement_noise_cov;
 
         /* Calculate sigma points */
-        constexpr auto n = extent_state_size + 3u;
-        constexpr auto n_state = extent_state_size;
+        CalculateSigmaPoint();
+        PredictSigmaPointsPseudomeasurements();
+        const auto z = CalculatePredictedPseudomeasurement();
+        const auto cov_zz = CalculatePseudomeasurementCovariance(z);
+        const auto cov_pz = CalculateShapePseudomeasurementCroscovariance(z);       
 
-        const auto lambda = std::pow(alpha_, 2u) * (static_cast<double>(n) + kappa_) - static_cast<double>(n);
+        /* Kalman Gain */
+        const auto kalman_gain = cov_pz / cov_zz;
 
-        // Calculate weight mean
-        constexpr auto sigma_points_number = 2u * n + 1u;
-        std::array<double, sigma_points_number> wm;
-        wm.at(0u) = lambda / (static_cast<double>(n) + lambda);
-        std::fill(wm.begin() + 1u, wm.end(), 1.0 / (2.0 * (static_cast<double>(n) + lambda)));
-        // Calculate weight covariance
-        std::array<double, sigma_points_number> wc;
-        wc.at(0u) = (lambda / (static_cast<double>(n) + lambda)) + (1.0 - std::pow(alpha_, 2u) + beta_);
-        std::fill(wc.begin() + 1u, wc.end(), 1.0 / (2.0 * (static_cast<double>(n) + lambda));
-
-        // Calculate Sigm-Points
-        const auto sigma_points_cholesky_part = std::sqrt(static_cast<double>(n) + lambda) * c_ukf.llt().matrixL();
-
-        std::array<Eigen::Vector<double, extent_state_size + 3u>, sigma_points_number> sigma_points;
-        sigma_points.at(0) = p_ukf;
-        for (auto index = 0u; index < n; index++) {
-          sigma_points.at(index + 1u) = p_ukf + sigma_points_cholesky_part.col(index);
-          sigma_points.at(n + index + 1u) = p_ukf - sigma_points_cholesky_part.col(index);
-        }
-
-        // UKF Prediction Step
-        std::array<double, sigma_points_number> sigma_points_predicted;
-        std::transform(sigma_points.begin(), sigma_points.end(),
-          sigma_points_predicted.begin(),
-          [](const Eigen::Vector<double, extent_state_size + 3u> & sigma_point){
-            return 0.0;
-          }
-        );
-
-        // Predicted measurement
-        std::array<double, sigma_points_number> sigma_points_predicted_weighted;
-        std::transform(sigma_points_predicted.begin(), sigma_points_predicted.end(), wm.begin(),
-          sigma_points_predicted_weighted.begin(),
-          [](const double predicted_sigma_point, const double weight){
-            return predicted_sigma_point * weight;
-          }
-        );
-        double z = std::accumulate(sigma_points_predicted_weighted.begin(), sigma_points_predicted_weighted.end(), 0.0);
-
-        // Predicted measurement covariance
-        std::array<double, sigma_points_number> sigma_points_predicted_weighted_cov;
-        std::transform(sigma_points_predicted.begin(), sigma_points_predicted.end(), wc.begin(),
-          sigma_points_predicted_weighted_cov.begin(),
-          [=z](const double predicted_sigma_point, const double weight){
-            return weight * std::pow(predicted_sigma_point - z, 2u);
-          }
-        );
-        double cov_yy = std::accumulate(sigma_points_predicted_weighted_cov.begin(), sigma_points_predicted_weighted_cov.end(), 0.0);
-
-        // Crosscovariance
-        Eigen::Vector<double, extent_state_size + 3u> cov_py = Eigen::Vector<double, extent_state_size + 3u>::Zero();
-        for (auto index = 0u; index < sigma_points_number; index++)
-          cov_py += wc.at(index) * (sigma_points_predicted.at(index) - z) * (sigma_points.at(index) - state_.extent.state);
-
-        // Kalman Gain
-        const auto kalman_gain = cov_py / cov_yy;
-
-        // Estimated state
+        /* Estimated state */
         state_.extent.state -= kalman_gain * z;
-        state_.extent.covariance -= kalman_gain * cov_yy * kalman_gain.transpose();
-        state_.extent.covariance = MakeMatrixSymetric<extent_state_size>(state_.extent.covariance)
+        state_.extent.covariance -= kalman_gain * cov_zz * kalman_gain.transpose();
+        state_.extent.covariance = MakeMatrixSymetric<extent_state_size + 3u>(state_.extent.covariance);
       }
 
       double CalculatePseudoMeasurementSquare(const Measurement & measurement, const Eigen::Vector<double, extent_state_size> & shape_parameters, const Eigen::Vector3d & noise) {
@@ -205,7 +165,9 @@ namespace eot {
 
         /* Pseudomeasurement */
         const auto pseudomeasurement = std::pow((center - measurement.value).norm(), 2u)
-        - (std::pow(s, 2u) * std::pow(fourier_coeffs.transpose() * shape_parameters, 2u) + 2.0 * s * fourier_coeffs.transpose() * shape_parameters * e.transpose() * v + std::pow(v.norm(), 2u));
+          - (std::pow(s, 2u) * std::pow(fourier_coeffs.transpose() * shape_parameters, 2u) + 2.0 * s * fourier_coeffs.transpose() * shape_parameters * e.transpose() * v + std::pow(v.norm(), 2u));
+
+        return pseudomeasurement;
       }
 
       Eigen::Vector<double, 2u * extent_state_size + 1u> CalculateFourierCoeffs(const double phi) {
@@ -220,23 +182,90 @@ namespace eot {
         return fourier_coeffs;
       }
 
-      void CalculateCrossCorelations(const Measurement & measurement) {
+      void CalculateCovariances(const Measurement & measurement) {
         //
       }
 
-      RhmCalibrations<kinematic_state_size> calibrations_;
+      void CalculateMeasurementCovariance(const Measurement & measurement) {
+        //
+      }
+
+      void CalculateStateMeasurementCroscovariance(const Measurement & measurement) {
+        //
+      }
+
+      double CalculatePseudomeasurementCovariance(const double z) {
+        std::array<double, sigma_points_number_> sigma_points_predicted_weighted_cov;
+        std::transform(sigma_points_predicted_.begin(), sigma_points_predicted_.end(), wc_.begin(),
+          sigma_points_predicted_weighted_cov.begin(),
+          [z](const double predicted_sigma_point, const double weight){
+            return weight * std::pow(predicted_sigma_point - z, 2u);
+          }
+        );
+        return std::accumulate(sigma_points_predicted_weighted_cov.begin(), sigma_points_predicted_weighted_cov.end(), 0.0);
+      }
+
+      Eigen::Vector<double, extent_state_size + 3u> CalculateShapePseudomeasurementCroscovariance(const double z) {
+        Eigen::Vector<double, extent_state_size + 3u> cov_py = Eigen::Vector<double, extent_state_size + 3u>::Zero();
+        for (auto index = 0u; index < sigma_points_number_; index++)
+          cov_py += wc_.at(index) * (sigma_points_predicted_.at(index) - z) * (sigma_points_.at(index) - state_.extent.state);
+        return cov_py;
+      }
+
+      void SetUkfWeights(void) {
+        // Calculate weight mean
+        wm_.at(0u) = lambda_ / (static_cast<double>(n_) + lambda_);
+        std::fill(wm_.begin() + 1u, wm_.end(), 1.0 / (2.0 * (static_cast<double>(n_) + lambda_)));
+        
+        // Calculate weight covariance
+        wc_.at(0u) = (lambda_ / (static_cast<double>(n_) + lambda_)) + (1.0 - std::pow(alpha_, 2u) + beta_);
+        std::fill(wc_.begin() + 1u, wc_.end(), 1.0 / (2.0 * (static_cast<double>(n_) + lambda_)));
+      }
+
+      void CalculateSigmaPoint(void) {
+        const Eigen::Matrix<double, extent_state_size + 3u, extent_state_size + 3u> chol = c_ukf_.llt().matrixL();
+        const auto sigma_points_cholesky_part = std::sqrt(static_cast<double>(n_) + lambda_) * chol;
+
+        sigma_points_.at(0) = p_ukf_;
+        for (auto index = 0u; index < n_; index++) {
+          sigma_points_.at(index + 1u) = p_ukf_ + sigma_points_cholesky_part.col(index);
+          sigma_points_.at(n_ + index + 1u) = p_ukf_ - sigma_points_cholesky_part.col(index);
+        }
+      }
+
+      void PredictSigmaPointsPseudomeasurements(void) {
+        std::transform(sigma_points_.begin(), sigma_points_.end(),
+          sigma_points_predicted_.begin(),
+          [](const Eigen::Vector<double, extent_state_size + 3u> & sigma_point){
+            return 0.0;
+          }
+        );
+      }
+
+      double CalculatePredictedPseudomeasurement(void) {
+        std::array<double, sigma_points_number_> sigma_points_predicted_weighted;
+        std::transform(sigma_points_predicted_.begin(), sigma_points_predicted_.end(), wm_.begin(),
+          sigma_points_predicted_weighted.begin(),
+          [](const double predicted_sigma_point, const double weight){
+            return predicted_sigma_point * weight;
+          }
+        );
+        return std::accumulate(sigma_points_predicted_weighted.begin(), sigma_points_predicted_weighted.end(), 0.0);
+      }
+
+      RhmCalibrations<kinematic_state_size, extent_state_size> calibrations_;
 
       bool is_initialized_ = false;
       double prev_timestamp_ = 0.0;
 
-      Eigen::Vector<double, measurement_size> predicted_measurement_ = Eigen::Vector<double, measurement_size>::Zero();
-      Eigen::Vector2d innovation_ = Eigen::Vector2d::Zero();
+      Eigen::Matrix<double, 2u, kinematic_state_size> h_ = Eigen::Matrix<double, 2u, kinematic_state_size>::Zero();
 
-      Eigen::Matrix<2u, kinematic_state_size> h_ = Eigen::Matrix<2u, kinematic_state_size>::Zero();
-
-      const double alpha_ = 1.0;
-      const double beta_ = 0.0;
-      const double kappa_ = 0.0;
+      Eigen::Matrix<double, extent_state_size + 3u, extent_state_size + 3u> c_ukf_;
+      Eigen::Vector<double, extent_state_size + 3u> p_ukf_;
+      std::array<double, sigma_points_number_> wm_;
+      std::array<double, sigma_points_number_> wc_;
+      std::array<Eigen::Vector<double, extent_state_size + 3u>, sigma_points_number_> sigma_points_;
+      std::array<double, sigma_points_number_> sigma_points_predicted_;
   };
 } //  namespace eot
 

@@ -21,6 +21,7 @@
 namespace plt = matplotlibcpp;
 
 constexpr auto state_size = 4u;
+constexpr auto extent_size = 4u;
 constexpr auto measurement_size = 2u;
 
 //--------------------------------------------------------------------------//
@@ -32,27 +33,27 @@ time_t to_time_t(TP tp) {
 }
 
 /*************************** Plot helpers ***************************/
-std::pair<std::vector<double>, std::vector<double>> CreateEllipse(const eot::Ellipse & ellipse, const std::pair<double, double> & center) {
-  std::vector<double> x;
-  std::vector<double> y;
+// std::pair<std::vector<double>, std::vector<double>> CreateEllipse(const eot::Ellipse & ellipse, const std::pair<double, double> & center) {
+//   std::vector<double> x;
+//   std::vector<double> y;
 
-  for (double t = 0.0; t < 2.0 * std::numbers::pi_v<double>; t += 0.01) {
-      double x_t = ellipse.l1 * std::cos(t) * std::cos(ellipse.alpha) - ellipse.l2 * std::sin(t) * std::sin(ellipse.alpha) + center.first;
-      double y_t = ellipse.l1 * std::cos(t) * std::sin(ellipse.alpha) + ellipse.l2 * std::sin(t) * std::cos(ellipse.alpha) + center.second;
-      x.push_back(x_t);
-      y.push_back(y_t);
-  }
+//   for (double t = 0.0; t < 2.0 * std::numbers::pi_v<double>; t += 0.01) {
+//       double x_t = ellipse.l1 * std::cos(t) * std::cos(ellipse.alpha) - ellipse.l2 * std::sin(t) * std::sin(ellipse.alpha) + center.first;
+//       double y_t = ellipse.l1 * std::cos(t) * std::sin(ellipse.alpha) + ellipse.l2 * std::sin(t) * std::cos(ellipse.alpha) + center.second;
+//       x.push_back(x_t);
+//       y.push_back(y_t);
+//   }
 
-  return std::make_pair(x, y);
-}
+//   return std::make_pair(x, y);
+// }
 
 /*************************** Define motion model ***************************/
 namespace eot {
   /* x, y, vx, vy */
-  class ModelCv : public MemEkf<state_size> {
+  class ModelCv : public RhmTracker<state_size, extent_size> {
     public:
-      explicit ModelCv(const MemEkfCalibrations<state_size> & calibrations) 
-        : MemEkf<state_size>(calibrations) {
+      explicit ModelCv(const RhmCalibrations<state_size, extent_size> & calibrations) 
+        : RhmTracker<state_size, extent_size>(calibrations) {
         // TODO
       }
 
@@ -62,8 +63,8 @@ namespace eot {
         SetTransitionMatrix(time_delta);
 
         // Update kinematic
-        state_.kinematic_state.state = transition_matrix_ * state_.kinematic_state.state;
-        state_.kinematic_state.covariance = transition_matrix_ * state_.kinematic_state.covariance * transition_matrix_.transpose() + c_kinematic_;
+        state_.kinematic.state = transition_matrix_ * state_.kinematic.state;
+        state_.kinematic.covariance = transition_matrix_ * state_.kinematic.covariance * transition_matrix_.transpose() + c_kinematic_;
       }
     
     private:
@@ -86,23 +87,23 @@ namespace eot {
 /*************************** Main ***************************/
 int main() {
   /************************** Define tracker object **************************/
-  eot::MemEkfCalibrations<state_size> calibrations;
-  calibrations.multiplicative_noise_diagonal = {0.25, 0.25};
-  calibrations.process_noise_kinematic_diagonal = {100.0, 100.0, 1.0, 1.0};
-  calibrations.process_noise_extent_diagonal = {0.025, 0.00000001, 0.00000001};
-  calibrations.initial_state.kinematic_state.state << 0.0, 0.0, 0.0, 0.0;
-  std::array<double, 4u> kin_cov = {10.0, 10.0, 10.0, 10.0};
-  calibrations.initial_state.kinematic_state.covariance = eot::ConvertDiagonalToMatrix(kin_cov);
-  calibrations.initial_state.extent_state.ellipse.alpha = 0.0;
-  calibrations.initial_state.extent_state.ellipse.l1 = 2.0;
-  calibrations.initial_state.extent_state.ellipse.l2 = 1.0;
-  std::array<double, 3u> ext_cov = {std::numbers::pi_v<double>, 1.0, 1.0};
-  calibrations.initial_state.extent_state.covariance = eot::ConvertDiagonalToMatrix(ext_cov);
+  eot::RhmCalibrations<state_size, extent_size> calibrations;
+  // calibrations.multiplicative_noise_diagonal = {0.25, 0.25};
+  // calibrations.process_noise_kinematic_diagonal = {100.0, 100.0, 1.0, 1.0};
+  // calibrations.process_noise_extent_diagonal = {0.025, 0.00000001, 0.00000001};
+  // calibrations.initial_state.kinematic.state << 0.0, 0.0, 0.0, 0.0;
+  // std::array<double, 4u> kin_cov = {10.0, 10.0, 10.0, 10.0};
+  // calibrations.initial_state.kinematic.covariance = eot::ConvertDiagonalToMatrix(kin_cov);
+  // calibrations.initial_state.extent.ellipse.alpha = 0.0;
+  // calibrations.initial_state.extent.ellipse.l1 = 2.0;
+  // calibrations.initial_state.extent.ellipse.l2 = 1.0;
+  // std::array<double, 3u> ext_cov = {std::numbers::pi_v<double>, 1.0, 1.0};
+  // calibrations.initial_state.extent.covariance = eot::ConvertDiagonalToMatrix(ext_cov);
 
-  eot::ModelCv mem_ekf_cv_tracker(calibrations);
+  eot::ModelCv rhm_cv_tracker(calibrations);
 
   /************************** Run **************************/
-  std::vector<eot::ObjectState<state_size>> output_objects;
+  std::vector<eot::ObjectState<state_size, extent_size>> output_objects;
   std::vector<std::vector<eot::MeasurementWithCovariance<measurement_size>>> detections;
   
   // Sort scans
@@ -140,13 +141,13 @@ int main() {
     std::cout << "Time step: " << std::to_string(timestamp) << ", " << std::to_string(measurements.size()) << " Measurements\n";
 
     // Run tracker
-    mem_ekf_cv_tracker.Run(timestamp, measurements);
+    rhm_cv_tracker.Run(timestamp, measurements);
 
     // Get output
-    const auto object = mem_ekf_cv_tracker.GetEstimatedState();
-    output_objects.push_back(object);
+    const auto object = rhm_cv_tracker.GetEstimatedState();
+    // output_objects.push_back(object);
 
-    std::cout << "alpha = " << object.extent_state.ellipse.alpha << ", l1 = " << object.extent_state.ellipse.l1 << ", l2 = " << object.extent_state.ellipse.l2 << "\n";
+    //std::cout << "alpha = " << object.extent.ellipse.alpha << ", l1 = " << object.extent.ellipse.l1 << ", l2 = " << object.extent.ellipse.l2 << "\n";
 
     timestamp += 0.1;
   }
@@ -189,11 +190,11 @@ int main() {
   std::vector<double> x_objects;
   std::vector<double> y_objects;
   for (auto index = 0u; index < output_objects.size(); index = index + 3u) {
-    x_objects.push_back(output_objects.at(index).kinematic_state.state(0u));
-    y_objects.push_back(output_objects.at(index).kinematic_state.state(1u));
+    x_objects.push_back(output_objects.at(index).kinematic.state(0u));
+    y_objects.push_back(output_objects.at(index).kinematic.state(1u));
 
-    const auto [x_ellips, y_ellipse] = CreateEllipse(output_objects.at(index).extent_state.ellipse, std::make_pair(output_objects.at(index).kinematic_state.state(0u), output_objects.at(index).kinematic_state.state(1u)));
-    plt::plot(x_ellips, y_ellipse, "r");
+    // const auto [x_ellips, y_ellipse] = CreateEllipse(output_objects.at(index).extent.ellipse, std::make_pair(output_objects.at(index).kinematic.state(0u), output_objects.at(index).kinematic.state(1u)));
+    // plt::plot(x_ellips, y_ellipse, "r");
   }
   plt::plot(x_objects, y_objects, "r*");
 
@@ -225,9 +226,9 @@ int main() {
     // vx_ref.push_back(gt.velocity.at(index).first);
     // vy_ref.push_back(gt.velocity.at(index).second);
 
-    vx_obj.push_back(output_objects.at(index).kinematic_state.state(2u));
-    vy_obj.push_back(output_objects.at(index).kinematic_state.state(3u));
-    speed.push_back(std::hypot(output_objects.at(index).kinematic_state.state(2u), output_objects.at(index).kinematic_state.state(3u)));
+    vx_obj.push_back(output_objects.at(index).kinematic.state(2u));
+    vy_obj.push_back(output_objects.at(index).kinematic.state(3u));
+    speed.push_back(std::hypot(output_objects.at(index).kinematic.state(2u), output_objects.at(index).kinematic.state(3u)));
 
     idx.push_back(index);
   }

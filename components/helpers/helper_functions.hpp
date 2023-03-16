@@ -3,8 +3,6 @@
 
 #include <Eigen/Dense>
 
-#include "ellipse.hpp"
-
 namespace eot {
   /* B = 0.5 * (A + A') */
   template <size_t matrix_size>
@@ -33,39 +31,6 @@ namespace eot {
         }
       }
     }
-
-    return output;
-  }
-
-  /* Convert ellipse to vector */
-  const Eigen::Vector<double, 3u> & ConvertEllipseToVector(const Ellipse & ellipse) {
-    static Eigen::Vector<double, 3u> vector;
-
-    vector(0u) = ellipse.alpha;
-    vector(1u) = ellipse.l1;
-    vector(2u) = ellipse.l2;
-
-    return vector;
-  }
-
-  /* Convert vector to ellipse */
-  const Ellipse & ConvertVectorToEllipse(const Eigen::Vector<double, 3u> & vector) {
-    static Ellipse ellipse;
-
-    ellipse.alpha = vector(0u);
-    ellipse.l1 = vector(1u);
-    ellipse.l2 = vector(2u);
-
-    return ellipse;
-  }
-
-  /* Diagonal to matrix */
-  template <size_t size>
-  Eigen::Matrix<double, size, size> ConvertDiagonalToMatrix(const std::array<double, size> & diagonal) {
-    static Eigen::Matrix<double, size, size> output = Eigen::Matrix<double, size, size>::Zero();
-
-    for (size_t index = 0u; index < size; index++)
-      output(index, index) = diagonal.at(index);
 
     return output;
   }

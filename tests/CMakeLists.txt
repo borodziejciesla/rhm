@@ -16,12 +16,12 @@ FetchContent_MakeAvailable(googletest)
 # Tests
 ################################
 add_executable(${TEST_PROJECT_NAME}
-  mem_ekf_tests.cpp
+  rhm_star_convex_tests.cpp
 )
 
 target_link_libraries(${TEST_PROJECT_NAME}
   gtest 
   gtest_main
       
-  mem_ekf
+  rhm
 )
