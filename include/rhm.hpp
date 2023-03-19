@@ -13,7 +13,7 @@
 #include "measurement.hpp"
 #include "object_state.hpp"
 #include "rhm_calibrations.hpp"
-#include "../components/helpers/helper_functions.hpp"
+#include "helper_functions.hpp"
 
 namespace eot {
   template <size_t kinematic_state_size, size_t extent_state_size, size_t measurement_size = 2u>
@@ -34,11 +34,15 @@ namespace eot {
       using MeasurementVector = Eigen::Vector<double, measurement_size>;
       using MeasurementMatrix = Eigen::Matrix<double, measurement_size, measurement_size>;
       using ObjectStateRhm = ObjectState<kinematic_state_size, extent_state_size + 3u>;
+      using RhmCalibration = RhmCalibrations<kinematic_state_size, extent_state_size>;
 
     public:
-      explicit RhmTracker(const RhmCalibrations<kinematic_state_size, extent_state_size> & calibrations)
+      explicit RhmTracker(const RhmCalibration & calibrations)
         : calibrations_{calibrations} {
-        //state_ = calibrations_.initial_state;
+        state_ = calibrations_.initial_state;
+
+        kinematic_process_noise_ = ConvertDiagonalToMatrix<kinematic_state_size>(calibrations_.process_noise_kinematic_diagonal);
+        extent_process_noise_ = ConvertDiagonalToMatrix<extent_state_size>(calibrations_.process_noise_extent_diagonal);
 
         scale_.state(0u) = 0.7;
         scale_.covariance(0u, 0u) = 0.08;
@@ -47,7 +51,7 @@ namespace eot {
         h_(0u, 0u) = 1.0;
         h_(1u, 1u) = 1.0;
 
-
+        // Prepare UKF
         SetUkfWeights();
       }
       
@@ -76,7 +80,68 @@ namespace eot {
     protected:
       virtual void UpdateKinematic(const double time_delta) = 0;
       void UpdateExtent(void) {};
-      void FirstEstimation(const std::vector<Measurement> & measurements) {};
+      void FirstEstimation(const std::vector<Measurement> & measurements) {
+        // Find center
+        const auto [x_min, x_max] = std::minmax_element(measurements.begin(), measurements.end(),
+          [](const Measurement & a, const Measurement & b) {
+            return a.value(0u) < b.value(0u);
+          }
+        );
+        const auto [y_min, y_max] = std::minmax_element(measurements.begin(), measurements.end(),
+          [](const Measurement & a, const Measurement & b) {
+            return a.value(1u) < b.value(1u);
+          }
+        );
+
+        state_.kinematic.state(0u) = 0.5 * ((*x_min).value(0u) + (*x_max).value(0u));
+        state_.kinematic.state(1u) = 0.5 * ((*y_min).value(1u) + (*y_max).value(1u));
+
+        // Estimatet orientation
+        auto u_11 = 0.0;
+        auto u_20 = 0.0;
+        auto u_02 = 0.0;
+
+        for (const auto & measurement : measurements) {
+          const auto delta_x = measurement.value(0u) - state_.kinematic.state(0u);
+          const auto delta_y = measurement.value(0u) - state_.kinematic.state(1u);
+
+          u_11 += delta_x * delta_y;
+          u_20 += std::pow(delta_x, 2);
+          u_02 += std::pow(delta_y, 2);
+        }
+        
+        const auto alpha = 0.5 * std::atan2(2.0 * u_11, u_20 - u_02);
+
+        // Estimate size
+        using Point = std::pair<double, double>;
+        std::vector<Point> points_rotated(measurements.size());
+        std::transform(measurements.begin(), measurements.end(), points_rotated.begin(),
+          [alpha,this](const Measurement & measurement) {
+            const auto delta_x = measurement.value(0u) - state_.kinematic.state(0u);
+            const auto delta_y = measurement.value(0u) - state_.kinematic.state(1u);
+            const auto c = std::cos(-alpha);
+            const auto s = std::sin(-alpha);
+
+            const auto x_rotated = delta_x * c - delta_y * s;
+            const auto y_rotated = delta_x * s + delta_y * c;
+
+            return std::make_pair(x_rotated, y_rotated);
+          }
+        );
+        
+        const auto [min_x, max_x] = std::minmax_element(points_rotated.begin(), points_rotated.end(),
+          [](const Point & a, const Point & b) {
+            return a.first < b.first;
+          }
+        );
+        const auto [min_y, max_y] = std::minmax_element(points_rotated.begin(), points_rotated.end(),
+          [](const Point & a, const Point & b) {
+            return a.second < b.second;
+          }
+        );
+
+        state_.extent.state(0u) = std::max(0.5 * (max_x->first - min_x->first), 0.5 * (max_y->second - min_y->second));
+      }
       
       ObjectStateRhm state_;
       Eigen::Matrix<double, kinematic_state_size, kinematic_state_size> c_kinematic_;
@@ -136,11 +201,12 @@ namespace eot {
         measurement_noise_cov.block<2u, 2u>(1u, 1u) = measurement.covariance;
 
         /* Prepare current extended state */
-        p_ukf_.head(extent_state_size) = state_.extent.state;
-        p_ukf_.tail(3u) = measurement_noise_mean;
+        p_ukf_ = state_.extent.state;
+        // p_ukf_.tail(3u) = measurement_noise_mean;
 
-        c_ukf_.block(0u, 0u, extent_state_size, extent_state_size) = state_.extent.covariance;
-        c_ukf_.block(extent_state_size, extent_state_size, 3u, 3u) = measurement_noise_cov;
+        c_ukf_ = state_.extent.covariance;
+        // c_ukf_.block(0u, 0u, extent_state_size, extent_state_size) = state_.extent.covariance;
+        // c_ukf_.block(extent_state_size, extent_state_size, 3u, 3u) = measurement_noise_cov;
 
         /* Calculate sigma points */
         CalculateSigmaPoint();
@@ -165,9 +231,9 @@ namespace eot {
 
       double EvaluateRadialFunction(const double phi) const {
         double radius = 0.5 * state_.extent.state(0u);
-        for (auto index = 0u; index < extent_state_size; index++) {
-          const auto ai = state_.extent.state(1u + index * 2u);
-          const auto bi = state_.extent.state(1u + index * 2u + 1u);
+        for (auto index = 0u; index < extent_state_size; index = index + 2u) {
+          const auto ai = state_.extent.state(1u + index);
+          const auto bi = state_.extent.state(1u + index + 1u);
           const auto angle = static_cast<double>(index + 1u) * phi; 
           radius += ai * std::cos(angle) + bi * std::sin(angle);
         }
@@ -288,12 +354,15 @@ namespace eot {
         return u;
       }
 
-      RhmCalibrations<kinematic_state_size, extent_state_size> calibrations_;
+      RhmCalibration calibrations_;
 
       bool is_initialized_ = false;
       double prev_timestamp_ = 0.0;
 
       Eigen::Matrix<double, 2u, kinematic_state_size> h_ = Eigen::Matrix<double, 2u, kinematic_state_size>::Zero();
+
+      Eigen::Matrix<double, kinematic_state_size, kinematic_state_size> kinematic_process_noise_ = Eigen::Matrix<double, kinematic_state_size, kinematic_state_size>::Zero();
+      Eigen::Matrix<double, extent_state_size, extent_state_size> extent_process_noise_ = Eigen::Matrix<double, extent_state_size, extent_state_size>::Zero();
 
       double phi_ = 0.0;
 

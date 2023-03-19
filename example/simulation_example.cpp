@@ -13,7 +13,7 @@
 
 #include "measurement.hpp"
 #include "rhm.hpp"
-#include "../components/helpers/helper_functions.hpp"
+#include "helper_functions.hpp"
 
 #include "csv_reader.hpp"
 #include "trajectory_generation.hpp"
@@ -31,21 +31,6 @@ time_t to_time_t(TP tp) {
   auto sctp = std::chrono::time_point_cast<std::chrono::system_clock::duration>(tp - TP::clock::now() + std::chrono::system_clock::now());
   return std::chrono::system_clock::to_time_t(sctp);
 }
-
-/*************************** Plot helpers ***************************/
-// std::pair<std::vector<double>, std::vector<double>> CreateEllipse(const eot::Ellipse & ellipse, const std::pair<double, double> & center) {
-//   std::vector<double> x;
-//   std::vector<double> y;
-
-//   for (double t = 0.0; t < 2.0 * std::numbers::pi_v<double>; t += 0.01) {
-//       double x_t = ellipse.l1 * std::cos(t) * std::cos(ellipse.alpha) - ellipse.l2 * std::sin(t) * std::sin(ellipse.alpha) + center.first;
-//       double y_t = ellipse.l1 * std::cos(t) * std::sin(ellipse.alpha) + ellipse.l2 * std::sin(t) * std::cos(ellipse.alpha) + center.second;
-//       x.push_back(x_t);
-//       y.push_back(y_t);
-//   }
-
-//   return std::make_pair(x, y);
-// }
 
 /*************************** Define motion model ***************************/
 namespace eot {
@@ -88,36 +73,31 @@ namespace eot {
 int main() {
   /************************** Define tracker object **************************/
   eot::RhmCalibrations<state_size, extent_size> calibrations;
-  // calibrations.multiplicative_noise_diagonal = {0.25, 0.25};
-  // calibrations.process_noise_kinematic_diagonal = {100.0, 100.0, 1.0, 1.0};
-  // calibrations.process_noise_extent_diagonal = {0.025, 0.00000001, 0.00000001};
-  // calibrations.initial_state.kinematic.state << 0.0, 0.0, 0.0, 0.0;
-  // std::array<double, 4u> kin_cov = {10.0, 10.0, 10.0, 10.0};
-  // calibrations.initial_state.kinematic.covariance = eot::ConvertDiagonalToMatrix(kin_cov);
-  // calibrations.initial_state.extent.ellipse.alpha = 0.0;
-  // calibrations.initial_state.extent.ellipse.l1 = 2.0;
-  // calibrations.initial_state.extent.ellipse.l2 = 1.0;
-  // std::array<double, 3u> ext_cov = {std::numbers::pi_v<double>, 1.0, 1.0};
-  // calibrations.initial_state.extent.covariance = eot::ConvertDiagonalToMatrix(ext_cov);
+  calibrations.process_noise_kinematic_diagonal = {100.0, 100.0, 1.0, 1.0};
+  calibrations.process_noise_extent_diagonal = {0.025, 0.00000001, 0.00000001, 0.25};
+  calibrations.initial_state.kinematic.state << 0.0, 0.0, 0.0, 0.0;
+  std::array<double, 4u> kin_cov = {10.0, 10.0, 10.0, 10.0};
+  calibrations.initial_state.kinematic.covariance = eot::ConvertDiagonalToMatrix(kin_cov);
+  std::array<double, 7u> ext_cov = {std::numbers::pi_v<double>, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
+  calibrations.initial_state.extent.covariance = eot::ConvertDiagonalToMatrix(ext_cov);
 
   eot::ModelCv rhm_cv_tracker(calibrations);
 
   /************************** Run **************************/
-  std::vector<eot::ObjectState<state_size, extent_size>> output_objects;
+  std::vector<eot::ModelCv::ObjectStateRhm> output_objects;
   std::vector<std::vector<eot::MeasurementWithCovariance<measurement_size>>> detections;
   
   // Sort scans
-  std::string radar_data_path("/home/maciek/Downloads/eot_simulation-20230227T213418Z-001/eot_simulation/lidar");
+  std::string sensor_data_path("/home/maciek/Downloads/eot_simulation-20230227T213418Z-001/eot_simulation/radar");
 
   std::set<std::filesystem::path> sorted_by_name;
 
-  for (auto & entry : std::filesystem::directory_iterator(radar_data_path))
+  for (auto & entry : std::filesystem::directory_iterator(sensor_data_path))
     sorted_by_name.insert(entry.path());
 
   // Run 
   double timestamp = 0.0;
   for (auto & scene_path : sorted_by_name) {
-    //const auto scene_path = entry.path().c_str();
     std::cout << scene_path.c_str() << "\n";
 
     CsvReader reader(scene_path.c_str());
@@ -145,7 +125,7 @@ int main() {
 
     // Get output
     const auto object = rhm_cv_tracker.GetEstimatedState();
-    // output_objects.push_back(object);
+    output_objects.push_back(object);
 
     //std::cout << "alpha = " << object.extent.ellipse.alpha << ", l1 = " << object.extent.ellipse.l1 << ", l2 = " << object.extent.ellipse.l2 << "\n";
 

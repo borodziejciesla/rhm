@@ -18,10 +18,12 @@ add_executable(${EXAMPLE_PROJECT_NAME}
 include_directories(${EXAMPLE_PROJECT_NAME}
   PUBLIC
   $<TARGET_PROPERTY:rhm,INTERFACE_INCLUDE_DIRECTORIES>
+  $<TARGET_PROPERTY:eigen,INTERFACE_INCLUDE_DIRECTORIES>
   ${Python3_INCLUDE_DIRS}
 )
 
 target_link_libraries(${EXAMPLE_PROJECT_NAME}
   rhm
+  eigen
   ${Python3_LIBRARIES}
 )

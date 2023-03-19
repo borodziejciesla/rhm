@@ -34,6 +34,17 @@ namespace eot {
 
     return output;
   }
+
+  /* Diagonal to matrix */
+  template <size_t size>
+  Eigen::Matrix<double, size, size> ConvertDiagonalToMatrix(const std::array<double, size> & diagonal) {
+    static Eigen::Matrix<double, size, size> output = Eigen::Matrix<double, size, size>::Zero();
+
+    for (size_t index = 0u; index < size; index++)
+      output(index, index) = diagonal.at(index);
+
+    return output;
+  }
 } //  namespace eot
 
 #endif  //  MEM_EKF_COMPONENTS_HELPERS_HELPER_FUNCTIONS_HPP_

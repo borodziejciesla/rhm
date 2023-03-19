@@ -15,12 +15,12 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(BUILD_TESTS "Build tests" ON)
-option(BUILD_EXAMPLE "Build example" OFF)
+option(BUILD_EXAMPLE "Build example" ON)
 
 ###############################################
 ################## Library ####################
 ###############################################
-find_package(Eigen3)
+# find_package(Eigen3)
 
 add_subdirectory(components)
 
@@ -40,7 +40,7 @@ target_include_directories(${PROJECT_NAME}
 # )
 
 include(CMakePackageConfigHelpers)
-write_basic_package_version_file("mem_ekfConfigVersion.cmake"
+write_basic_package_version_file("rhmConfigVersion.cmake"
   VERSION ${PROJECT_VERSION}
   COMPATIBILITY SameMajorVersion
 )
