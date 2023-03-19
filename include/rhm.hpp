@@ -102,12 +102,20 @@ namespace eot {
       }
 
       void MakeOneDetectionCorrection(const Measurement & measurement) {
+        // Calculate pseudomeasurement angle
+        CalculatePhiPseudomeasurementAngle(measurement);
+
         // Make corrections
         MakeKinematicCorrection(measurement);
         MakeExtentCorrection(measurement);
       }
 
       void MakeKinematicCorrection(const Measurement & measurement) {
+        // Calculate covariances
+        CalculateMeasurementCovariance(measurement);
+        CalculateStateMeasurementCroscovariance(measurement);
+
+        // Inverse measurement covariance
         const auto inversed_measurement_covariance = covariance_measurement_.inverse();
 
         // Make correction
@@ -150,6 +158,22 @@ namespace eot {
         state_.extent.covariance = MakeMatrixSymetric<extent_state_size + 3u>(state_.extent.covariance);
       }
 
+      void CalculatePhiPseudomeasurementAngle(const Measurement & measurement) {
+        const auto center = h_ * state_.kinematic.state;
+        phi_ = std::atan2(measurement.value(1u) - center(1u), measurement.value(0u) - center(0u));// + 2.0 * std::numbers::pi;?
+      }
+
+      double EvaluateRadialFunction(const double phi) const {
+        double radius = 0.5 * state_.extent.state(0u);
+        for (auto index = 0u; index < extent_state_size; index++) {
+          const auto ai = state_.extent.state(1u + index * 2u);
+          const auto bi = state_.extent.state(1u + index * 2u + 1u);
+          const auto angle = static_cast<double>(index + 1u) * phi; 
+          radius += ai * std::cos(angle) + bi * std::sin(angle);
+        }
+        return radius;
+      }
+
       double CalculatePseudoMeasurementSquare(const Measurement & measurement, const Eigen::Vector<double, extent_state_size> & shape_parameters, const Eigen::Vector3d & noise) {
         /* Find phi */
         const auto center = h_ * state_.kinematic.state;
@@ -183,16 +207,16 @@ namespace eot {
         return fourier_coeffs;
       }
 
-      void CalculateCovariances(const Measurement & measurement) {
-        //
-      }
-
       void CalculateMeasurementCovariance(const Measurement & measurement) {
-        //
+        const auto u = CalculateExtentPartOfMeasurementModel(phi_);
+
+        covariance_measurement_ = h_ * state_.kinematic.covariance * h_.transpose()
+          + u * (1.0 / 12.0) * u.transpose()
+          + measurement.covariance;
       }
 
       void CalculateStateMeasurementCroscovariance(const Measurement & measurement) {
-        //
+        crosscovariance_kinematic_measurement_ = state_.kinematic.covariance * h_.transpose();
       }
 
       double CalculatePseudomeasurementCovariance(const double z) {
@@ -254,12 +278,24 @@ namespace eot {
         return std::accumulate(sigma_points_predicted_weighted.begin(), sigma_points_predicted_weighted.end(), 0.0);
       }
 
+      Eigen::Vector2d CalculateExtentPartOfMeasurementModel(const double phi) {
+        static Eigen::Vector2d u = Eigen::Vector2d::Zero();
+
+        const auto radius = EvaluateRadialFunction(phi);
+        u(0u) = radius * std::cos(phi);
+        u(1u) = radius * std::sin(phi);
+
+        return u;
+      }
+
       RhmCalibrations<kinematic_state_size, extent_state_size> calibrations_;
 
       bool is_initialized_ = false;
       double prev_timestamp_ = 0.0;
 
       Eigen::Matrix<double, 2u, kinematic_state_size> h_ = Eigen::Matrix<double, 2u, kinematic_state_size>::Zero();
+
+      double phi_ = 0.0;
 
       Eigen::Matrix<double, extent_state_size + 3u, extent_state_size + 3u> c_ukf_;
       Eigen::Vector<double, extent_state_size + 3u> p_ukf_;
