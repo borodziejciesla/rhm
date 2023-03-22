@@ -11,7 +11,7 @@ namespace eot {
     std::array<double, kinematic_state_size> process_noise_kinematic_diagonal;  // Covariance of the process noise for the kinematic state
     std::array<double, extent_state_size> process_noise_extent_diagonal;        // Covariance of the process noise for the shape parameters
 
-    ObjectState<kinematic_state_size, extent_state_size + 3u> initial_state;         // Initial state value
+    ObjectState<kinematic_state_size, extent_state_size> initial_state;         // Initial state value
   };
 } //  namespace eot
 

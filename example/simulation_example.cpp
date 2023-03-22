@@ -21,7 +21,7 @@
 namespace plt = matplotlibcpp;
 
 constexpr auto state_size = 4u;
-constexpr auto extent_size = 4u;
+constexpr auto extent_size = 15u;
 constexpr auto measurement_size = 2u;
 
 //--------------------------------------------------------------------------//
@@ -76,9 +76,9 @@ int main() {
   calibrations.process_noise_kinematic_diagonal = {100.0, 100.0, 1.0, 1.0};
   calibrations.process_noise_extent_diagonal = {0.025, 0.00000001, 0.00000001, 0.25};
   calibrations.initial_state.kinematic.state << 0.0, 0.0, 0.0, 0.0;
-  std::array<double, 4u> kin_cov = {10.0, 10.0, 10.0, 10.0};
+  std::array<double, state_size> kin_cov = {10.0, 10.0, 10.0, 10.0};
   calibrations.initial_state.kinematic.covariance = eot::ConvertDiagonalToMatrix(kin_cov);
-  std::array<double, 7u> ext_cov = {std::numbers::pi_v<double>, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
+  std::array<double, extent_size> ext_cov = {std::numbers::pi_v<double>, 1.0, 1.0, 1.0, 1.0};
   calibrations.initial_state.extent.covariance = eot::ConvertDiagonalToMatrix(ext_cov);
 
   eot::ModelCv rhm_cv_tracker(calibrations);
@@ -109,7 +109,7 @@ int main() {
       eot::MeasurementWithCovariance<measurement_size> measurement;
 
       measurement.value(0u) = std::stod(data.at(detection_index).at(0u));
-      measurement.value(1u) = std::stod(data.at(detection_index).at(1u));
+      measurement.value(1u) = std::stod(data.at(detection_index).at(2u));
 
       measurement.covariance(0u, 0u) = 0.1;//std::stod(data.at(detection_index).at(1u));
       measurement.covariance(1u, 1u) = 0.1;//std::stod(data.at(detection_index).at(3u));
