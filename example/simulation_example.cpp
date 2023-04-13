@@ -40,6 +40,7 @@ namespace eot {
       explicit ModelCv(const RhmCalibrations<state_size, extent_size> & calibrations) 
         : RhmTracker<state_size, extent_size>(calibrations) {
         // TODO
+        c_kinematic_ = StateMatrix::Identity();
       }
 
     protected:
