@@ -82,6 +82,33 @@ namespace eot {
 
       void UpdateExtent(void) {};
 
+      Measurement FindObjectCenter(const std::vector<Measurement> & measurements) {
+        Measurement measurement;
+        
+        // Find center
+        const auto [x_min, x_max] = std::minmax_element(measurements.begin(), measurements.end(),
+          [](const Measurement & a, const Measurement & b) {
+            return a.value(0u) < b.value(0u);
+          }
+        );
+        const auto [y_min, y_max] = std::minmax_element(measurements.begin(), measurements.end(),
+          [](const Measurement & a, const Measurement & b) {
+            return a.value(1u) < b.value(1u);
+          }
+        );
+
+        measurement.value(0u) = 0.5 * ((*x_min).value(0u) + (*x_max).value(0u));
+        measurement.value(1u) = 0.5 * ((*y_min).value(1u) + (*y_max).value(1u));
+
+        // Find covariance
+        for (const auto & one_measurement : measurements)
+          measurement.covariance += one_measurement.covariance;
+        measurement.covariance /= static_cast<double>(measurements.size());
+        measurement.covariance /= 100.0;
+
+        return measurement;
+      }
+
       void FirstEstimation(const std::vector<Measurement> & measurements) {
         // Find center
         const auto [x_min, x_max] = std::minmax_element(measurements.begin(), measurements.end(),
@@ -164,8 +191,24 @@ namespace eot {
       }
 
       void RunCorrectionStep(const std::vector<Measurement> & measurements) {
+        // Make kinematic correction
+        const auto center_pseudo_measurement = FindObjectCenter(measurements);
+        MakeCenterCorrection(center_pseudo_measurement);
+        // Extend correction
         for (const auto & measurement : measurements)
           MakeOneDetectionCorrection(measurement);
+      }
+
+      void MakeCenterCorrection(const Measurement & pseudo_measurement) {
+        const auto innovation = pseudo_measurement.value - h_ * state_.kinematic.state;
+        const auto innovation_covariance = h_ * state_.kinematic.covariance * h_.transpose() + pseudo_measurement.covariance;
+        const auto kalman_gain = state_.kinematic.covariance * h_.transpose() * innovation_covariance.inverse();
+
+        state_.kinematic.state += kalman_gain * innovation;
+        state_.kinematic.covariance = (StateMatrix::Identity() - kalman_gain * h_) * state_.kinematic.covariance;
+
+        // Force symetricity
+        state_.kinematic.covariance = MakeMatrixSymetric<kinematic_state_size>(state_.kinematic.covariance);
       }
 
       void MakeOneDetectionCorrection(const Measurement & measurement) {
@@ -173,7 +216,7 @@ namespace eot {
         CalculatePhiPseudomeasurementAngle(measurement);
 
         // Make corrections
-        MakeKinematicCorrection(measurement);
+        //MakeKinematicCorrection(measurement);
         MakeExtentCorrection(measurement);
       }
 

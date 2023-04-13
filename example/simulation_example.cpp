@@ -40,6 +40,8 @@ namespace eot {
       explicit ModelCv(const RhmCalibrations<state_size, extent_size> & calibrations) 
         : RhmTracker<state_size, extent_size>(calibrations) {
         // TODO
+
+        c_kinematic_ = StateMatrix::Identity();
       }
 
     protected:
@@ -111,8 +113,8 @@ int main() {
       measurement.value(0u) = std::stod(data.at(detection_index).at(0u));
       measurement.value(1u) = std::stod(data.at(detection_index).at(2u));
 
-      measurement.covariance(0u, 0u) = 0.1;//std::stod(data.at(detection_index).at(1u));
-      measurement.covariance(1u, 1u) = 0.1;//std::stod(data.at(detection_index).at(3u));
+      measurement.covariance(0u, 0u) = std::stod(data.at(detection_index).at(1u));
+      measurement.covariance(1u, 1u) = std::stod(data.at(detection_index).at(3u));
 
       measurements.push_back(measurement);
     }
@@ -158,7 +160,7 @@ int main() {
   // Detections
   std::vector<double> x_detections;
   std::vector<double> y_detections;
-  for (auto index = 0u; index < detections.size(); index = index + 3u) {
+  for (auto index = 0u; index < detections.size(); index = index + 1u) {
     for (const auto & detection : detections.at(index)) {
       x_detections.push_back(detection.value(0u));
       y_detections.push_back(detection.value(1u));
@@ -169,7 +171,7 @@ int main() {
   // Objects Center
   std::vector<double> x_objects;
   std::vector<double> y_objects;
-  for (auto index = 0u; index < output_objects.size(); index = index + 3u) {
+  for (auto index = 0u; index < output_objects.size(); index = index + 1u) {
     x_objects.push_back(output_objects.at(index).kinematic.state(0u));
     y_objects.push_back(output_objects.at(index).kinematic.state(1u));
 
