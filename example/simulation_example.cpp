@@ -24,6 +24,38 @@ constexpr auto state_size = 4u;
 constexpr auto extent_size = 15u;
 constexpr auto measurement_size = 2u;
 
+/************************** Plot Star-Convex Shape **************************/
+struct increment {
+  double value;
+  increment(): value(0.0) {}
+  double operator() () { value += 2.0 * std::numbers::pi / 100.0; return value; }
+};
+
+std::pair<std::vector<double>, std::vector<double>> PlotStarConvexShape(const Eigen::Vector<double, extent_size> & extent, const Eigen::Vector<double, state_size> & kinematic) {
+  std::vector<double> angels(100u);
+  std::generate_n(angels.begin(), 100u, increment());
+
+  std::pair<std::vector<double>, std::vector<double>> sc_shape;
+
+  for (auto index = 0u; index < 100u; index++) {
+    const auto phi = angels.at(index);
+    Eigen::Vector<double, extent_size> R;
+    R(0u) = 0.5;
+    auto i = 1u;
+    for (auto f_index = 1u; f_index < extent_size; f_index += 2u) {
+      R(f_index) = std::cos(phi * static_cast<double>(i));
+      R(f_index + 1u) = std::sin(phi * static_cast<double>(i));
+      i++;
+    }
+    const auto r = R.transpose() * extent;
+
+    sc_shape.first.push_back(r(0) * std::cos(phi) + kinematic(0));
+    sc_shape.second.push_back(r(0) * std::sin(phi) + kinematic(1));
+  }
+
+  return sc_shape;
+}
+
 //--------------------------------------------------------------------------//
 //--- helper function convert timepoint to usable timestamp
 template <typename TP>
@@ -40,6 +72,7 @@ namespace eot {
       explicit ModelCv(const RhmCalibrations<state_size, extent_size> & calibrations) 
         : RhmTracker<state_size, extent_size>(calibrations) {
         // TODO
+        c_kinematic_ = 10.0 * StateMatrix::Identity();
       }
 
     protected:
@@ -88,7 +121,7 @@ int main() {
   std::vector<std::vector<eot::MeasurementWithCovariance<measurement_size>>> detections;
   
   // Sort scans
-  std::string sensor_data_path("/home/maciek/Downloads/eot_simulation-20230227T213418Z-001/eot_simulation/radar");
+  std::string sensor_data_path("/home/maciek/Downloads/eot_simulation-20230227T213418Z-001/eot_simulation/lidar");
 
   std::set<std::filesystem::path> sorted_by_name;
 
@@ -109,7 +142,7 @@ int main() {
       eot::MeasurementWithCovariance<measurement_size> measurement;
 
       measurement.value(0u) = std::stod(data.at(detection_index).at(0u));
-      measurement.value(1u) = std::stod(data.at(detection_index).at(2u));
+      measurement.value(1u) = std::stod(data.at(detection_index).at(1u));
 
       measurement.covariance(0u, 0u) = 0.1;//std::stod(data.at(detection_index).at(1u));
       measurement.covariance(1u, 1u) = 0.1;//std::stod(data.at(detection_index).at(3u));
@@ -173,8 +206,10 @@ int main() {
     x_objects.push_back(output_objects.at(index).kinematic.state(0u));
     y_objects.push_back(output_objects.at(index).kinematic.state(1u));
 
+    const auto rhm = PlotStarConvexShape(output_objects.at(index).extent.state, output_objects.at(index).kinematic.state);
+
     // const auto [x_ellips, y_ellipse] = CreateEllipse(output_objects.at(index).extent.ellipse, std::make_pair(output_objects.at(index).kinematic.state(0u), output_objects.at(index).kinematic.state(1u)));
-    // plt::plot(x_ellips, y_ellipse, "r");
+    plt::plot(rhm.first, rhm.second, "r");
   }
   plt::plot(x_objects, y_objects, "r*");
 
