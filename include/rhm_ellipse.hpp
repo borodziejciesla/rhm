@@ -11,11 +11,7 @@ namespace eot {
         : RhmTracker<kinematic_state_size, 3u, measurement_size>(calibrations) {}
       
       virtual ~RhmEllipseTracker(void) = default;
-    
-    protected:
-    
-    private:
-  }
-}
+  };
+} // namespace eot
 
 #endif  //  RHM_INCLUDE_RHM_ELLIPSE_HPP_

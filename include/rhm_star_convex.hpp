@@ -11,11 +11,7 @@ namespace eot {
         : RhmTracker<kinematic_state_size, extent_state_size, measurement_size>(calibrations) {}
       
       virtual ~RhmStarConvexTracker(void) = default;
-    
-    protected:
-    
-    private:
-  }
-}
+  };
+} //  namespace rot
 
 #endif  //  RHM_INCLUDE_RHM_STAR_CONVEX_HPP_
