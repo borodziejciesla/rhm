@@ -295,6 +295,9 @@ int main() {
     const auto rhm = PlotRadialFunction(output_objects.at(index).extent.state);
     plt::plot(rhm.first, rhm.second, "r");
   }
+  plt::grid(true);
+  plt::xlabel("r [m]");
+  plt::ylabel("phi [rad]");
   plt::show();
 
   return EXIT_SUCCESS;
