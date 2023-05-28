@@ -16,9 +16,10 @@
 #include "helper_functions.hpp"
 
 namespace eot {
-  template <size_t kinematic_state_size, size_t extent_state_size, size_t measurement_size = 2u>
+  template <size_t kinematic_state_size, size_t extent_state_order, size_t measurement_size = 2u>
   class RhmTracker {
     private:
+      static constexpr uint8_t extent_state_size = 2u * extent_state_order + 1u;
       static constexpr uint8_t n_ = extent_state_size + 3u;
       static constexpr uint8_t n_state_ = extent_state_size;
       static constexpr uint8_t sigma_points_number_ = 2u * n_ + 1u;
@@ -33,8 +34,8 @@ namespace eot {
       using Measurement = MeasurementWithCovariance<measurement_size>;
       using MeasurementVector = Eigen::Vector<double, measurement_size>;
       using MeasurementMatrix = Eigen::Matrix<double, measurement_size, measurement_size>;
-      using ObjectStateRhm = ObjectState<kinematic_state_size, extent_state_size>;
-      using RhmCalibration = RhmCalibrations<kinematic_state_size, extent_state_size>;
+      using ObjectStateRhm = ObjectState<kinematic_state_size, extent_state_order>;
+      using RhmCalibration = RhmCalibrations<kinematic_state_size, extent_state_order>;
 
     public:
       explicit RhmTracker(const RhmCalibration & calibrations)
@@ -150,7 +151,7 @@ namespace eot {
 
       StateWithCovariance<1u> scale_;
       double covariance_pseudo_measurement_ = 0.0;
-      Eigen::Vector<double, extent_state_size + 3u> crosscovariance_extent_pseudomeasurement_ = Eigen::Vector<double, extent_state_size + 3u>::Zero();
+      Eigen::Vector<double, extent_state_size> crosscovariance_extent_pseudomeasurement_ = Eigen::Vector<double, extent_state_size>::Zero();
       Eigen::Vector<double, kinematic_state_size> crosscovariance_kinematic_pseudomeasurement_ = Eigen::Vector<double, kinematic_state_size>::Zero();
       Eigen::Matrix<double, kinematic_state_size, measurement_size> crosscovariance_kinematic_measurement_ = Eigen::Matrix<double, kinematic_state_size, measurement_size>::Zero();
       Eigen::Matrix<double, measurement_size, measurement_size> covariance_measurement_ = Eigen::Matrix<double, measurement_size, measurement_size>::Zero();
@@ -222,16 +223,17 @@ namespace eot {
 
         /* Estimated state */
         state_.extent.state -= kalman_gain * z;
+
         state_.extent.covariance -= kalman_gain * cov_zz * kalman_gain.transpose();
         state_.extent.covariance = MakeMatrixSymetric<extent_state_size>(state_.extent.covariance);
       }
 
       void CalculatePhiPseudomeasurementAngle(const Measurement & measurement) {
         const auto center = h_ * state_.kinematic.state;
-        phi_ = std::atan2(measurement.value(1u) - center(1u), measurement.value(0u) - center(0u));// + 2.0 * std::numbers::pi;?
+        phi_ = std::atan2(measurement.value(1u) - center(1u), measurement.value(0u) - center(0u));
       }
 
-      double EvaluateRadialFunction(const Eigen::Vector<double, extent_state_size> & fourier_coefficient, const Eigen::Vector<double, extent_state_size> & shape_parameters) const {
+      double EvaluateRadialFunction(const Eigen::Vector<double, 2u * extent_state_order + 1u> & fourier_coefficient, const Eigen::Vector<double, 2u * extent_state_order + 1u> & shape_parameters) const {
         const auto radius_matrix = fourier_coefficient.transpose() * shape_parameters;
         return radius_matrix(0u);
       }
@@ -239,7 +241,7 @@ namespace eot {
       double CalculatePseudoMeasurementSquare(const Measurement & measurement, const Eigen::Vector<double, extent_state_size + 3u> & shape_parameters) {
         /* Find phi */
         const auto center = h_ * state_.kinematic.state;
-        const auto phi = std::atan2(measurement.value(1u) - center(1u), measurement.value(0u) - center(0u));// + 2.0 * std::numbers::pi;
+        const auto phi = std::atan2(measurement.value(1u) - center(1u), measurement.value(0u) - center(0u));
 
         /* Find Fourier coefficients */
         const auto fourier_coeffs = CalculateFourierCoeffs(phi);
@@ -252,26 +254,28 @@ namespace eot {
         const auto s = shape_parameters(extent_state_size);
         const Eigen::Vector2d v = shape_parameters.tail(2u);
 
-        Eigen::Vector<double, extent_state_size> shape = shape_parameters.head(extent_state_size);
+        Eigen::Vector<double, 2u * extent_state_order + 1u> shape = shape_parameters.head(2u * extent_state_order + 1u);
 
-        const auto radius = EvaluateRadialFunction(fourier_coeffs, shape);
+        const auto radius = EvaluateRadialFunction(fourier_coeffs, shape.head(2u * extent_state_order + 1u));
 
         /* Pseudomeasurement */
-        const auto pseudomeasurement = std::pow((center - measurement.value).norm(), 2u)
-          - (std::pow(s, 2u) * std::pow(radius, 2u)
+        const auto diff = std::pow((center - measurement.value).norm(), 2u);
+        const auto tmp = (std::pow(s, 2u) * std::pow(radius, 2u)
           + 2.0 * s * radius * e.transpose() * v
           + std::pow(v.norm(), 2u));
+        const auto pseudomeasurement = diff - tmp;
 
         return pseudomeasurement;
       }
 
-      Eigen::Vector<double, extent_state_size> CalculateFourierCoeffs(const double phi) {
-        static Eigen::Vector<double, extent_state_size> fourier_coeffs;
+      Eigen::Vector<double, 2u * extent_state_order + 1u> CalculateFourierCoeffs(const double phi) {
+        static Eigen::Vector<double, 2u * extent_state_order + 1u> fourier_coeffs;
 
         fourier_coeffs(0u) = 0.5;
-        for (auto index = 1u; index <= (extent_state_size - 1u) / 2u; index++) {
-          fourier_coeffs(1u + 2u * (index - 1u)) = std::cos(static_cast<double>(index) * phi);
-          fourier_coeffs(1u + 2u * (index - 1u) + 1u) = std::sin(static_cast<double>(index) * phi);
+        for (auto index = 0u; index < (2u * extent_state_order); index += 2u) {
+          const auto n = static_cast<double>(index / 2u)  + 1.0;
+          fourier_coeffs(1u + index) = std::cos(n * phi);
+          fourier_coeffs(1u + index + 1u) = std::sin(n * phi);
         }
 
         return fourier_coeffs;
@@ -352,7 +356,7 @@ namespace eot {
         static Eigen::Vector2d u = Eigen::Vector2d::Zero();
 
         const auto fourier_coeffs = CalculateFourierCoeffs(phi);
-        const auto radius = EvaluateRadialFunction(fourier_coeffs, state_.extent.state);
+        const auto radius = EvaluateRadialFunction(fourier_coeffs, state_.extent.state.head(2u * extent_state_order + 1u));
 
         u(0u) = radius * std::cos(phi);
         u(1u) = radius * std::sin(phi);
@@ -372,8 +376,8 @@ namespace eot {
 
       double phi_ = 0.0;
 
-      Eigen::Matrix<double, extent_state_size + 3u, extent_state_size + 3u> c_ukf_;
-      Eigen::Vector<double, extent_state_size + 3u> p_ukf_;
+      Eigen::Matrix<double, extent_state_size + 3u, extent_state_size + 3u> c_ukf_ = Eigen::Matrix<double, extent_state_size + 3u, extent_state_size + 3u>::Zero();
+      Eigen::Vector<double, extent_state_size + 3u> p_ukf_ = Eigen::Vector<double, extent_state_size + 3u>::Zero();
       std::array<double, sigma_points_number_> wm_;
       std::array<double, sigma_points_number_> wc_;
       std::array<Eigen::Vector<double, extent_state_size + 3u>, sigma_points_number_> sigma_points_;

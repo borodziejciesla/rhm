@@ -12,7 +12,7 @@ namespace eot {
 
   template <size_t kinematic_state_size, size_t extent_state_size>
   struct ObjectState {
-    StateWithCovariance<extent_state_size> extent;
+    StateWithCovariance<2u * extent_state_size + 1u> extent;
     StateWithCovariance<kinematic_state_size> kinematic;
   };
 } //  namespace eot

@@ -21,40 +21,8 @@
 namespace plt = matplotlibcpp;
 
 constexpr auto state_size = 4u;
-constexpr auto extent_size = 15u;
+constexpr auto extent_size = 3u;
 constexpr auto measurement_size = 2u;
-
-/************************** Plot Star-Convex Shape **************************/
-struct increment {
-  double value;
-  increment(): value(0.0) {}
-  double operator() () { value += 2.0 * std::numbers::pi / 100.0; return value; }
-};
-
-std::pair<std::vector<double>, std::vector<double>> PlotStarConvexShape(const Eigen::Vector<double, extent_size> & extent, const Eigen::Vector<double, state_size> & kinematic) {
-  std::vector<double> angels(100u);
-  std::generate_n(angels.begin(), 100u, increment());
-
-  std::pair<std::vector<double>, std::vector<double>> sc_shape;
-
-  for (auto index = 0u; index < 100u; index++) {
-    const auto phi = angels.at(index);
-    Eigen::Vector<double, extent_size> R;
-    R(0u) = 0.5;
-    auto i = 1u;
-    for (auto f_index = 1u; f_index < extent_size; f_index += 2u) {
-      R(f_index) = std::cos(phi * static_cast<double>(i));
-      R(f_index + 1u) = std::sin(phi * static_cast<double>(i));
-      i++;
-    }
-    const auto r = R.transpose() * extent;
-
-    sc_shape.first.push_back(r(0) * std::cos(phi) + kinematic(0));
-    sc_shape.second.push_back(r(0) * std::sin(phi) + kinematic(1));
-  }
-
-  return sc_shape;
-}
 
 //--------------------------------------------------------------------------//
 //--- helper function convert timepoint to usable timestamp
@@ -102,17 +70,82 @@ namespace eot {
   };
 } //  namespace eot
 
+/************************** Plot Star-Convex Shape **************************/
+std::pair<std::vector<double>, std::vector<double>> PlotStarConvexShape(const eot::ModelCv::ObjectStateRhm & object) {
+  struct increment {
+    double value;
+    increment(): value(0.0) {}
+    double operator() () { value += 2.0 * std::numbers::pi / 100.0; return value; }
+  };
+  
+  std::vector<double> angels(100u);
+  std::generate_n(angels.begin(), 100u, increment());
+
+  std::pair<std::vector<double>, std::vector<double>> sc_shape;
+
+  for (auto index = 0u; index < 100u; index++) {
+    const auto phi = angels.at(index);
+    Eigen::Vector<double, 2u * extent_size + 1u> R;
+    R(0u) = 0.5;
+    auto i = 1u;
+    for (auto f_index = 1u; f_index < 2u * extent_size + 1u; f_index += 2u) {
+      R(f_index) = std::cos(phi * static_cast<double>(i));
+      R(f_index + 1u) = std::sin(phi * static_cast<double>(i));
+      i++;
+    }
+    const auto r = R.transpose() * object.extent.state;
+
+    sc_shape.first.push_back(r(0) * std::cos(phi) + object.kinematic.state(0u));
+    sc_shape.second.push_back(r(0) * std::sin(phi) + object.kinematic.state(1u));
+  }
+
+  return sc_shape;
+}
+
+/************************** Plot raddial function **************************/
+std::pair<std::vector<double>, std::vector<double>> PlotRadialFunction(const Eigen::Vector<double, 2u * extent_size + 1u> & extent) {
+  struct increment {
+    double value;
+    increment(): value(0.0) {}
+    double operator() () { value += 2.0 * std::numbers::pi / 100.0; return value; }
+  };
+  
+  std::vector<double> angels(100u);
+  std::generate_n(angels.begin(), 100u, increment());
+
+  std::pair<std::vector<double>, std::vector<double>> radial_function;
+
+  for (auto index = 0u; index < 100u; index++) {
+    const auto phi = angels.at(index);
+    Eigen::Vector<double, 2u * extent_size + 1u> R;
+    R(0u) = 0.5;
+    auto i = 1u;
+    for (auto f_index = 1u; f_index < 2u * extent_size + 1u; f_index += 2u) {
+      R(f_index) = std::cos(phi * static_cast<double>(i));
+      R(f_index + 1u) = std::sin(phi * static_cast<double>(i));
+      i++;
+    }
+    const auto r = R.transpose() * extent.head(2u * extent_size + 1u);
+
+    radial_function.first.push_back(phi);
+    radial_function.second.push_back(r(0));
+  }
+
+  return radial_function;
+}
+
 /*************************** Main ***************************/
 int main() {
   /************************** Define tracker object **************************/
   eot::RhmCalibrations<state_size, extent_size> calibrations;
   calibrations.process_noise_kinematic_diagonal = {100.0, 100.0, 1.0, 1.0};
-  calibrations.process_noise_extent_diagonal = {0.025, 0.00000001, 0.00000001, 0.25};
+  for (auto & element : calibrations.process_noise_extent_diagonal)
+    element = 0.1;
+  //calibrations.process_noise_extent_diagonal = {0.025, 0.00000001, 0.00000001, 0.25};
   calibrations.initial_state.kinematic.state << 0.0, 0.0, 0.0, 0.0;
   std::array<double, state_size> kin_cov = {10.0, 10.0, 10.0, 10.0};
   calibrations.initial_state.kinematic.covariance = eot::ConvertDiagonalToMatrix(kin_cov);
-  std::array<double, extent_size> ext_cov = {std::numbers::pi_v<double>, 1.0, 1.0, 1.0, 1.0};
-  calibrations.initial_state.extent.covariance = eot::ConvertDiagonalToMatrix(ext_cov);
+  calibrations.initial_state.extent.covariance = 0.0002 * Eigen::Matrix<double, 2u * extent_size + 1u, 2u * extent_size + 1u>::Identity();
 
   eot::ModelCv rhm_cv_tracker(calibrations);
 
@@ -160,7 +193,10 @@ int main() {
     const auto object = rhm_cv_tracker.GetEstimatedState();
     output_objects.push_back(object);
 
-    //std::cout << "alpha = " << object.extent.ellipse.alpha << ", l1 = " << object.extent.ellipse.l1 << ", l2 = " << object.extent.ellipse.l2 << "\n";
+    // std::cout << "extent = []";
+    // for (const auto e : object.extent) {
+    //   std::cout << object.extent.value << ", l1 = " << object.extent.ellipse.l1 << ", l2 = " << object.extent.ellipse.l2 << "\n";
+    // }
 
     timestamp += 0.1;
   }
@@ -191,7 +227,7 @@ int main() {
   // Detections
   std::vector<double> x_detections;
   std::vector<double> y_detections;
-  for (auto index = 0u; index < detections.size(); index = index + 3u) {
+  for (auto index = 0u; index < detections.size(); index = index + 1u) {
     for (const auto & detection : detections.at(index)) {
       x_detections.push_back(detection.value(0u));
       y_detections.push_back(detection.value(1u));
@@ -202,11 +238,11 @@ int main() {
   // Objects Center
   std::vector<double> x_objects;
   std::vector<double> y_objects;
-  for (auto index = 0u; index < output_objects.size(); index = index + 3u) {
+  for (auto index = 0u; index < output_objects.size(); index = index + 1u) {
     x_objects.push_back(output_objects.at(index).kinematic.state(0u));
     y_objects.push_back(output_objects.at(index).kinematic.state(1u));
 
-    const auto rhm = PlotStarConvexShape(output_objects.at(index).extent.state, output_objects.at(index).kinematic.state);
+    const auto rhm = PlotStarConvexShape(output_objects.at(index));
 
     // const auto [x_ellips, y_ellipse] = CreateEllipse(output_objects.at(index).extent.ellipse, std::make_pair(output_objects.at(index).kinematic.state(0u), output_objects.at(index).kinematic.state(1u)));
     plt::plot(rhm.first, rhm.second, "r");
@@ -252,6 +288,13 @@ int main() {
   plt::plot(idx, vx_obj, "r");
   plt::plot(idx, vy_obj, "r:");
   plt::plot(idx, speed, "r--");
+  plt::show();
+
+  // Radial function
+  for (auto index = 0u; index < output_objects.size(); index = index + 1u) {
+    const auto rhm = PlotRadialFunction(output_objects.at(index).extent.state);
+    plt::plot(rhm.first, rhm.second, "r");
+  }
   plt::show();
 
   return EXIT_SUCCESS;
