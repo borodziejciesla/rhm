@@ -9,6 +9,10 @@ Based on articles:
 
 
 ## Results
+### Lidar
 ![alt text](fig/trajectory.png)
-
 ![alt text](fig/radial_function.png)
+
+### Radar
+![alt text](fig/trajectory_radar.png)
+![alt text](fig/radial_function_radar.png)

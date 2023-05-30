@@ -140,7 +140,7 @@ int main() {
   eot::RhmCalibrations<state_size, extent_size> calibrations;
   calibrations.process_noise_kinematic_diagonal = {100.0, 100.0, 1.0, 1.0};
   for (auto & element : calibrations.process_noise_extent_diagonal)
-    element = 0.1;
+    element = 1.5;
   //calibrations.process_noise_extent_diagonal = {0.025, 0.00000001, 0.00000001, 0.25};
   calibrations.initial_state.kinematic.state << 0.0, 0.0, 0.0, 0.0;
   std::array<double, state_size> kin_cov = {10.0, 10.0, 10.0, 10.0};
@@ -154,7 +154,7 @@ int main() {
   std::vector<std::vector<eot::MeasurementWithCovariance<measurement_size>>> detections;
   
   // Sort scans
-  std::string sensor_data_path("/home/maciek/Downloads/eot_simulation-20230227T213418Z-001/eot_simulation/lidar");
+  std::string sensor_data_path("/home/maciek/Downloads/eot_simulation-20230227T213418Z-001/eot_simulation/radar");
 
   std::set<std::filesystem::path> sorted_by_name;
 
@@ -175,10 +175,10 @@ int main() {
       eot::MeasurementWithCovariance<measurement_size> measurement;
 
       measurement.value(0u) = std::stod(data.at(detection_index).at(0u));
-      measurement.value(1u) = std::stod(data.at(detection_index).at(1u));
+      measurement.value(1u) = std::stod(data.at(detection_index).at(2u));
 
-      measurement.covariance(0u, 0u) = 0.1;//std::stod(data.at(detection_index).at(1u));
-      measurement.covariance(1u, 1u) = 0.1;//std::stod(data.at(detection_index).at(3u));
+      measurement.covariance(0u, 0u) = std::stod(data.at(detection_index).at(1u));
+      measurement.covariance(1u, 1u) = std::stod(data.at(detection_index).at(3u));
 
       measurements.push_back(measurement);
     }
