@@ -3,14 +3,12 @@
 #include "model_cv.hpp"
 
 /* Tests */
-class RhmTests : public ::testing::Test
-{
-  protected:
-    void SetUp(void) override {}
+class RhmTests : public ::testing::Test {
+ protected:
+  void SetUp(void) override {}
 };
 
-TEST_F(RhmTests, DummyTest)
-{
+TEST_F(RhmTests, DummyTest) {
   // Set calibrations
   eot::RhmCalibrations<4u, 5u> calibrations;
   // calibrations.multiplicative_noise_diagonal = {0.25, 0.25, 0.25, 0.25, 0.25};

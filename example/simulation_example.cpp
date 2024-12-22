@@ -11,9 +11,9 @@
 
 #include "matplotlibcpp.hpp"
 
+#include "helper_functions.hpp"
 #include "measurement.hpp"
 #include "rhm.hpp"
-#include "helper_functions.hpp"
 
 #include "csv_reader.hpp"
 #include "trajectory_generation.hpp"
@@ -28,56 +28,63 @@ constexpr auto measurement_size = 2u;
 //--- helper function convert timepoint to usable timestamp
 template <typename TP>
 time_t to_time_t(TP tp) {
-  auto sctp = std::chrono::time_point_cast<std::chrono::system_clock::duration>(tp - TP::clock::now() + std::chrono::system_clock::now());
+  auto sctp = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
+      tp - TP::clock::now() + std::chrono::system_clock::now());
   return std::chrono::system_clock::to_time_t(sctp);
 }
 
 /*************************** Define motion model ***************************/
 namespace eot {
-  /* x, y, vx, vy */
-  class ModelCv : public RhmTracker<state_size, extent_size> {
-    public:
-      explicit ModelCv(const RhmCalibrations<state_size, extent_size> & calibrations) 
-        : RhmTracker<state_size, extent_size>(calibrations) {
-        // TODO
-        c_kinematic_ = 10.0 * StateMatrix::Identity();
-      }
+/* x, y, vx, vy */
+class ModelCv : public RhmTracker<state_size, extent_size> {
+ public:
+  explicit ModelCv(const RhmCalibrations<state_size, extent_size>& calibrations)
+      : RhmTracker<state_size, extent_size>(calibrations) {
+    // TODO
+    c_kinematic_ = 10.0 * StateMatrix::Identity();
+  }
 
-    protected:
-      void UpdateKinematic(const double time_delta) {
-        // Update helpers
-        SetTransitionMatrix(time_delta);
+ protected:
+  void UpdateKinematic(const double time_delta) {
+    // Update helpers
+    SetTransitionMatrix(time_delta);
 
-        // Update kinematic
-        state_.kinematic.state = transition_matrix_ * state_.kinematic.state;
-        state_.kinematic.covariance = transition_matrix_ * state_.kinematic.covariance * transition_matrix_.transpose() + c_kinematic_;
-      }
-    
-    private:
-      void SetTransitionMatrix(const double time_delta) {
-        //x
-        transition_matrix_(0u, 0u) = 1.0;
-        transition_matrix_(0u, 2u) = time_delta;
-        // y
-        transition_matrix_(1u, 1u) = 1.0;
-        transition_matrix_(1u, 3u) = time_delta;
-        // vx
-        transition_matrix_(2u, 2u) = 1.0;
-        // vy
-        transition_matrix_(3u, 3u) = 1.0;
-      }
-      StateMatrix transition_matrix_ = StateMatrix::Zero();
-  };
-} //  namespace eot
+    // Update kinematic
+    state_.kinematic.state = transition_matrix_ * state_.kinematic.state;
+    state_.kinematic.covariance =
+        transition_matrix_ * state_.kinematic.covariance * transition_matrix_.transpose() +
+        c_kinematic_;
+  }
+
+ private:
+  void SetTransitionMatrix(const double time_delta) {
+    // x
+    transition_matrix_(0u, 0u) = 1.0;
+    transition_matrix_(0u, 2u) = time_delta;
+    // y
+    transition_matrix_(1u, 1u) = 1.0;
+    transition_matrix_(1u, 3u) = time_delta;
+    // vx
+    transition_matrix_(2u, 2u) = 1.0;
+    // vy
+    transition_matrix_(3u, 3u) = 1.0;
+  }
+  StateMatrix transition_matrix_ = StateMatrix::Zero();
+};
+}  //  namespace eot
 
 /************************** Plot Star-Convex Shape **************************/
-std::pair<std::vector<double>, std::vector<double>> PlotStarConvexShape(const eot::ModelCv::ObjectStateRhm & object) {
+std::pair<std::vector<double>, std::vector<double>> PlotStarConvexShape(
+    const eot::ModelCv::ObjectStateRhm& object) {
   struct increment {
     double value;
-    increment(): value(0.0) {}
-    double operator() () { value += 2.0 * std::numbers::pi / 100.0; return value; }
+    increment() : value(0.0) {}
+    double operator()() {
+      value += 2.0 * std::numbers::pi / 100.0;
+      return value;
+    }
   };
-  
+
   std::vector<double> angels(100u);
   std::generate_n(angels.begin(), 100u, increment());
 
@@ -103,13 +110,17 @@ std::pair<std::vector<double>, std::vector<double>> PlotStarConvexShape(const eo
 }
 
 /************************** Plot raddial function **************************/
-std::pair<std::vector<double>, std::vector<double>> PlotRadialFunction(const Eigen::Vector<double, 2u * extent_size + 1u> & extent) {
+std::pair<std::vector<double>, std::vector<double>> PlotRadialFunction(
+    const Eigen::Vector<double, 2u * extent_size + 1u>& extent) {
   struct increment {
     double value;
-    increment(): value(0.0) {}
-    double operator() () { value += 2.0 * std::numbers::pi / 100.0; return value; }
+    increment() : value(0.0) {}
+    double operator()() {
+      value += 2.0 * std::numbers::pi / 100.0;
+      return value;
+    }
   };
-  
+
   std::vector<double> angels(100u);
   std::generate_n(angels.begin(), 100u, increment());
 
@@ -139,31 +150,32 @@ int main() {
   /************************** Define tracker object **************************/
   eot::RhmCalibrations<state_size, extent_size> calibrations;
   calibrations.process_noise_kinematic_diagonal = {100.0, 100.0, 1.0, 1.0};
-  for (auto & element : calibrations.process_noise_extent_diagonal)
-    element = 1.5;
-  //calibrations.process_noise_extent_diagonal = {0.025, 0.00000001, 0.00000001, 0.25};
+  for (auto& element : calibrations.process_noise_extent_diagonal) element = 1.5;
+  // calibrations.process_noise_extent_diagonal = {0.025, 0.00000001, 0.00000001, 0.25};
   calibrations.initial_state.kinematic.state << 0.0, 0.0, 0.0, 0.0;
   std::array<double, state_size> kin_cov = {10.0, 10.0, 10.0, 10.0};
   calibrations.initial_state.kinematic.covariance = eot::ConvertDiagonalToMatrix(kin_cov);
-  calibrations.initial_state.extent.covariance = 0.0002 * Eigen::Matrix<double, 2u * extent_size + 1u, 2u * extent_size + 1u>::Identity();
+  calibrations.initial_state.extent.covariance =
+      0.0002 * Eigen::Matrix<double, 2u * extent_size + 1u, 2u * extent_size + 1u>::Identity();
 
   eot::ModelCv rhm_cv_tracker(calibrations);
 
   /************************** Run **************************/
   std::vector<eot::ModelCv::ObjectStateRhm> output_objects;
   std::vector<std::vector<eot::MeasurementWithCovariance<measurement_size>>> detections;
-  
+
   // Sort scans
-  std::string sensor_data_path("/home/maciek/Downloads/eot_simulation-20230227T213418Z-001/eot_simulation/radar");
+  std::string sensor_data_path(
+      "/home/maciek/Downloads/eot_simulation-20230227T213418Z-001/eot_simulation/radar");
 
   std::set<std::filesystem::path> sorted_by_name;
 
-  for (auto & entry : std::filesystem::directory_iterator(sensor_data_path))
+  for (auto& entry : std::filesystem::directory_iterator(sensor_data_path))
     sorted_by_name.insert(entry.path());
 
-  // Run 
+  // Run
   double timestamp = 0.0;
-  for (auto & scene_path : sorted_by_name) {
+  for (auto& scene_path : sorted_by_name) {
     std::cout << scene_path.c_str() << "\n";
 
     CsvReader reader(scene_path.c_str());
@@ -184,7 +196,8 @@ int main() {
     }
     detections.push_back(measurements);
 
-    std::cout << "Time step: " << std::to_string(timestamp) << ", " << std::to_string(measurements.size()) << " Measurements\n";
+    std::cout << "Time step: " << std::to_string(timestamp) << ", "
+              << std::to_string(measurements.size()) << " Measurements\n";
 
     // Run tracker
     rhm_cv_tracker.Run(timestamp, measurements);
@@ -195,7 +208,8 @@ int main() {
 
     // std::cout << "extent = []";
     // for (const auto e : object.extent) {
-    //   std::cout << object.extent.value << ", l1 = " << object.extent.ellipse.l1 << ", l2 = " << object.extent.ellipse.l2 << "\n";
+    //   std::cout << object.extent.value << ", l1 = " << object.extent.ellipse.l1 << ", l2 = " <<
+    //   object.extent.ellipse.l2 << "\n";
     // }
 
     timestamp += 0.1;
@@ -206,11 +220,12 @@ int main() {
   plt::xlabel("X [m]");
   plt::ylabel("Y [m]");
 
-  std::string reference_data_path("/home/maciek/Downloads/eot_simulation-20230227T213418Z-001/eot_simulation/reference");
+  std::string reference_data_path(
+      "/home/maciek/Downloads/eot_simulation-20230227T213418Z-001/eot_simulation/reference");
 
   std::vector<double> x_traj;
   std::vector<double> y_traj;
-  for (auto & scene_path : std::filesystem::directory_iterator(reference_data_path)) {
+  for (auto& scene_path : std::filesystem::directory_iterator(reference_data_path)) {
     CsvReader reader(scene_path.path().c_str());
     const auto data = reader.GetData();
 
@@ -218,7 +233,8 @@ int main() {
     y_traj.push_back(std::stod(data.at(1u).at(1u)));
 
     // eot::Ellipse ellipse = {std::stod(data.at(1u).at(2u)), 2.35, 0.9};
-    // const auto [x_ellips, y_ellipse] = CreateEllipse(ellipse, std::make_pair(std::stod(data.at(1u).at(0u)), std::stod(data.at(1u).at(1u))));
+    // const auto [x_ellips, y_ellipse] = CreateEllipse(ellipse,
+    // std::make_pair(std::stod(data.at(1u).at(0u)), std::stod(data.at(1u).at(1u))));
     // plt::plot(x_ellips, y_ellipse, "k");
   }
 
@@ -228,7 +244,7 @@ int main() {
   std::vector<double> x_detections;
   std::vector<double> y_detections;
   for (auto index = 0u; index < detections.size(); index = index + 1u) {
-    for (const auto & detection : detections.at(index)) {
+    for (const auto& detection : detections.at(index)) {
       x_detections.push_back(detection.value(0u));
       y_detections.push_back(detection.value(1u));
     }
@@ -244,7 +260,9 @@ int main() {
 
     const auto rhm = PlotStarConvexShape(output_objects.at(index));
 
-    // const auto [x_ellips, y_ellipse] = CreateEllipse(output_objects.at(index).extent.ellipse, std::make_pair(output_objects.at(index).kinematic.state(0u), output_objects.at(index).kinematic.state(1u)));
+    // const auto [x_ellips, y_ellipse] = CreateEllipse(output_objects.at(index).extent.ellipse,
+    // std::make_pair(output_objects.at(index).kinematic.state(0u),
+    // output_objects.at(index).kinematic.state(1u)));
     plt::plot(rhm.first, rhm.second, "r");
   }
   plt::plot(x_objects, y_objects, "r*");
@@ -256,9 +274,10 @@ int main() {
   //   x_ref.push_back(gt.center.at(index).at(0u));
   //   y_ref.push_back(gt.center.at(index).at(1u));
 
-  //   eot::Ellipse ellipse = {gt.orientation.at(index), gt.size.at(index).first, gt.size.at(index).second};
-  //   const auto [x_ellips, y_ellipse] = CreateEllipse(ellipse, std::make_pair(gt.center.at(index).at(0u), gt.center.at(index).at(1u)));
-  //   plt::plot(x_ellips, y_ellipse, "k");
+  //   eot::Ellipse ellipse = {gt.orientation.at(index), gt.size.at(index).first,
+  //   gt.size.at(index).second}; const auto [x_ellips, y_ellipse] = CreateEllipse(ellipse,
+  //   std::make_pair(gt.center.at(index).at(0u), gt.center.at(index).at(1u))); plt::plot(x_ellips,
+  //   y_ellipse, "k");
   // }
   // plt::plot(x_ref, y_ref, "k*");
 
@@ -279,7 +298,8 @@ int main() {
 
     vx_obj.push_back(output_objects.at(index).kinematic.state(2u));
     vy_obj.push_back(output_objects.at(index).kinematic.state(3u));
-    speed.push_back(std::hypot(output_objects.at(index).kinematic.state(2u), output_objects.at(index).kinematic.state(3u)));
+    speed.push_back(std::hypot(output_objects.at(index).kinematic.state(2u),
+                               output_objects.at(index).kinematic.state(3u)));
 
     idx.push_back(index);
   }
